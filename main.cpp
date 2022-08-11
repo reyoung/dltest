@@ -3,7 +3,7 @@
 #include <iostream>
 
 static int UseDLMOpen() {
-    auto bar_handle = dlmopen(LM_ID_NEWLM, "./libbar.so", RTLD_NOW | RTLD_LOCAL);
+    auto bar_handle = dlmopen(LM_ID_NEWLM, "./libbar.so", RTLD_LAZY | RTLD_LOCAL);
 
     if (bar_handle == nullptr) {
         std::cerr << dlerror() << std::endl;
@@ -16,7 +16,7 @@ static int UseDLMOpen() {
         return 2;
     }
 
-    auto foo_handle = dlmopen(lm, "./libfoo.so", RTLD_NOW | RTLD_LOCAL);
+    auto foo_handle = dlmopen(lm, "./libfoo.so", RTLD_LAZY | RTLD_LOCAL);
     if (foo_handle == nullptr) {
         std::cerr << dlerror() << std::endl;
         return 3;
@@ -79,11 +79,55 @@ static int UseDLOpen() {
     return 0;
 }
 
+static int UseDLMOpenWithoutBar() {
+    auto foo_handle = dlmopen(LM_ID_NEWLM, "./libfoo.so", RTLD_LAZY | RTLD_LOCAL);
+
+    if (foo_handle == nullptr) {
+        std::cerr << dlerror() << std::endl;
+        return 1;
+    }
+
+
+    plthook_t *plt;
+    if (plthook_open_by_handle(&plt, foo_handle) != 0) {
+        std::cerr << dlerror() << std::endl;
+        return 2;
+    }
+
+    {
+        void *old{};
+        if (plthook_replace(plt, "Bar", reinterpret_cast<void *>( +[]() -> int {
+            return 10;
+        }), &old) != 0) {
+            std::cerr << dlerror() << std::endl;
+            return 3;
+        }
+    }
+
+    plthook_close(plt);
+
+    void *foo = dlsym(foo_handle, "Foo");
+    if (foo == nullptr) {
+        std::cerr << dlerror() << std::endl;
+        return 4;
+    }
+    std::cout << "Foo(AfterHook) = " << " " << reinterpret_cast<int (*)()>(foo)() << std::endl;
+
+    return 0;
+}
+
+
 int main() {
-    int rc = UseDLMOpen();
+    int rc = UseDLMOpenWithoutBar();
+    if (rc != 0) {
+        return -rc - 1;
+    }
+
+    rc = UseDLMOpen();
     if (rc != 0) {
         return rc;
     }
+
 
     rc = UseDLOpen();
     if (rc == 0) {
